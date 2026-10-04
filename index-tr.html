@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaliGemma 2 · Forward Pass Görselleştirici</title>
+<style>
+  :root{
+    --bg:#0B0F19; --panel:#1E293B; --panel-2:#172033; --line:#2B3A55;
+    --text:#E2E8F0; --muted:#94A3B8;
+    --cyan:#38BDF8; --emerald:#34D399; --purple:#A855F7;
+    --sans: "Inter","Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.5}
+  body{min-height:100vh;background:
+    radial-gradient(900px 400px at 10% -10%, rgba(56,189,248,.10), transparent 60%),
+    radial-gradient(800px 400px at 100% 0%, rgba(168,85,247,.10), transparent 60%), var(--bg)}
+  :focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:6px}
+  .wrap{max-width:1240px;margin:0 auto;padding:22px 20px 40px}
+
+  header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+  h1{margin:0;font-size:clamp(1.5rem,3vw,2.1rem);letter-spacing:-.02em;font-weight:700}
+  h1 span{background:linear-gradient(90deg,var(--cyan),var(--purple));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--muted);margin:4px 0 0;font-size:.95rem;max-width:62ch}
+  .selects{display:flex;flex-wrap:wrap;gap:10px}
+  .field{display:flex;flex-direction:column;gap:3px;font-size:.78rem;color:var(--muted)}
+  select,input[type=text]{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;font-size:.9rem}
+  select:hover,input[type=text]:hover{border-color:#41557a}
+
+  .pipeline{display:flex;align-items:stretch;gap:0;margin-bottom:18px;flex-wrap:wrap;row-gap:10px}
+  .node{flex:1 1 150px;min-width:150px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;cursor:pointer;
+    opacity:.42;transition:opacity .4s,border-color .4s,box-shadow .4s,transform .3s;position:relative;text-align:left;color:inherit;font:inherit}
+  .node .k{font-size:.74rem;color:var(--muted)}
+  .node .t{font-weight:600;font-size:.95rem;margin-top:2px}
+  .node .m{font-size:.76rem;color:var(--muted);margin-top:4px;font-family:var(--mono)}
+  .node.done{opacity:.75}
+  .node.active{opacity:1;border-color:var(--c);animation:pulse 2.4s ease-in-out infinite}
+  .node[data-c=cyan]{--c:var(--cyan)} .node[data-c=purple]{--c:var(--purple)} .node[data-c=emerald]{--c:var(--emerald)}
+  .node::before{content:"";position:absolute;left:14px;right:14px;top:0;height:2px;background:var(--c);border-radius:2px;opacity:.9}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 transparent,0 0 14px -4px var(--c)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 18%,transparent),0 0 26px -2px var(--c)}}
+  .arrow{flex:0 0 34px;align-self:center;height:14px;opacity:.35;transition:opacity .4s}
+  .arrow path{fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .arrow.on{opacity:1}
+  .arrow.on path:first-child{stroke:var(--cyan);stroke-dasharray:4 4;animation:flow .8s linear infinite}
+  .arrow.on path:last-child{stroke:var(--cyan)}
+  @keyframes flow{to{stroke-dashoffset:-16}}
+  @media (max-width:760px){.arrow{display:none}}
+
+  .stage{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px}
+  @media (max-width:900px){.stage{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .viz{min-height:470px;position:relative;overflow:hidden}
+  .viz h3,.info h3{margin:0 0 4px;font-size:1.05rem}
+  .hint{color:var(--muted);font-size:.84rem;margin:0 0 12px}
+  .info .tag{display:inline-block;font-size:.76rem;padding:2px 9px;border-radius:99px;border:1px solid var(--c);color:var(--c);margin-bottom:10px}
+  .info p{margin:0 0 12px;color:#CBD5E1;font-size:.94rem}
+  .facts{display:grid;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+  .facts li{display:flex;justify-content:space-between;gap:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.84rem}
+  .facts li b{font-family:var(--mono);font-weight:500;color:var(--c);text-align:right}
+  .facts li span{color:var(--muted)}
+  .note{font-size:.78rem;color:var(--muted);margin-top:12px}
+
+  .row{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+  .imgbox{position:relative;width:min(100%,340px);aspect-ratio:1;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#000;flex:0 0 auto}
+  .imgbox svg{display:block;width:100%;height:100%}
+  .readout{font-family:var(--mono);font-size:.8rem;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:220px;flex:1 1 220px}
+  .readout b{color:var(--cyan);font-weight:500}
+  canvas.zoom{image-rendering:pixelated;width:112px;height:112px;border:1px solid var(--line);border-radius:8px;display:block;margin-bottom:8px}
+
+  .cell{fill:transparent;stroke:rgba(56,189,248,.35);stroke-width:.35}
+  .cell:hover{fill:rgba(56,189,248,.35);stroke:var(--cyan)}
+  .cell.sweep{animation:sweep .7s ease-out both;animation-delay:calc(var(--r)*70ms + var(--c)*12ms)}
+  @keyframes sweep{0%{fill:rgba(56,189,248,.65)}100%{fill:transparent}}
+
+  .tgrid{display:grid;grid-template-columns:repeat(16,1fr);gap:2px;width:min(100%,340px);flex:0 0 auto}
+  .tgrid i{aspect-ratio:1;border-radius:3px;display:block;animation:pop .5s both;animation-delay:calc(var(--i)*4ms);cursor:crosshair;
+    box-shadow:inset 0 0 0 1px rgba(56,189,248,.45)}
+  .tgrid i:hover{box-shadow:inset 0 0 0 2px #fff}
+  @keyframes pop{0%{transform:scale(.2);opacity:0}100%{transform:scale(1);opacity:1}}
+
+  .module{border:1px solid var(--c);border-radius:12px;padding:8px 12px;background:color-mix(in srgb,var(--c) 10%,transparent);font-size:.86rem;display:inline-block;cursor:help}
+  .module[data-c=cyan]{--c:var(--cyan)} .module[data-c=purple]{--c:var(--purple)} .module[data-c=emerald]{--c:var(--emerald)}
+  .bars{display:flex;align-items:center;gap:2px;height:84px}
+  .bars i{display:block;width:4px;border-radius:2px;background:var(--c,var(--cyan));opacity:.9;animation:grow .6s both;animation-delay:calc(var(--j)*8ms);transform-origin:center}
+  @keyframes grow{from{transform:scaleY(.05)}to{transform:scaleY(1)}}
+  .proj{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:6px}
+  .vec{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .vec small{color:var(--muted);font-size:.78rem;font-family:var(--mono)}
+  .matrix{width:92px;height:92px;border-radius:10px;border:1px solid var(--purple);position:relative;overflow:hidden;
+    background:repeating-linear-gradient(0deg,rgba(168,85,247,.25) 0 2px,transparent 2px 7px),repeating-linear-gradient(90deg,rgba(168,85,247,.25) 0 2px,transparent 2px 7px)}
+  .matrix::after{content:"W";position:absolute;inset:0;display:grid;place-items:center;font-weight:700;font-size:1.5rem;color:var(--purple);text-shadow:0 0 12px var(--purple)}
+  .big-arrow{color:var(--cyan);font-size:1.4rem;animation:nudge 1.2s ease-in-out infinite}
+  @keyframes nudge{50%{transform:translateX(5px)}}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .chip{font-family:var(--mono);font-size:.82rem;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);white-space:nowrap}
+  .chip.sp{border-color:var(--emerald);color:var(--emerald)}
+  .chip.tx{border-color:var(--purple);color:#D8B4FE}
+  .chip.out{border-color:var(--emerald);color:#A7F3D0;animation:pop .35s both}
+  .chip.loc{border-color:var(--cyan);color:#BAE6FD}
+  .chip.eos{border-color:var(--muted);color:var(--muted)}
+  .imgchip{display:flex;align-items:center;gap:8px;border:1px solid var(--cyan);border-radius:10px;padding:5px 9px;background:rgba(56,189,248,.08);font-family:var(--mono);font-size:.8rem;color:#BAE6FD}
+  .imgchip .mini{display:grid;grid-template-columns:repeat(16,4px);gap:0}
+  .imgchip .mini i{width:4px;height:4px;display:block}
+  .seg{margin:14px 0 6px;font-size:.8rem;color:var(--muted)}
+  .promptline{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .promptline input{flex:1 1 220px;font-family:var(--mono)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin-top:6px}
+  .legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--k);vertical-align:-1px}
+
+  .prob{display:grid;grid-template-columns:110px 1fr 42px;gap:8px;align-items:center;font-family:var(--mono);font-size:.78rem;margin:3px 0}
+  .prob div.b{height:8px;border-radius:5px;background:var(--panel-2);overflow:hidden}
+  .prob div.b i{display:block;height:100%;background:var(--emerald);border-radius:5px;transition:width .4s}
+  .prob.alt div.b i{background:#475569}
+  .decoded{font-size:1.05rem;min-height:2.4em;padding:10px 14px;border-radius:10px;border:1px dashed var(--emerald);background:rgba(52,211,153,.06);margin:8px 0}
+  .decoded em{color:var(--muted);font-style:normal}
+
+  .controls{position:sticky;bottom:0;margin-top:16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+    background:rgba(30,41,59,.92);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:16px;padding:12px 16px}
+  .btns{display:flex;gap:8px}
+  button.btn{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 16px;font:inherit;font-weight:600;font-size:.9rem;cursor:pointer;transition:border-color .2s,transform .1s,background .2s}
+  button.btn:hover:not(:disabled){border-color:var(--cyan)}
+  button.btn:active:not(:disabled){transform:translateY(1px)}
+  button.btn:disabled{opacity:.35;cursor:not-allowed}
+  button.btn.primary{background:var(--cyan);color:#06222F;border-color:var(--cyan)}
+  button.btn.primary.playing{background:var(--emerald);border-color:var(--emerald);color:#052018}
+  .dots{display:flex;gap:8px;align-items:center}
+  .dots button{width:12px;height:12px;border-radius:50%;border:1px solid var(--muted);background:transparent;padding:0;cursor:pointer}
+  .dots button.on{background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+  .dots button.done{background:var(--muted)}
+  .count{font-size:.85rem;color:var(--muted);font-family:var(--mono)}
+
+  #tip{position:fixed;z-index:50;max-width:290px;background:#0F172A;border:1px solid var(--c,var(--cyan));border-radius:12px;padding:10px 12px;font-size:.82rem;color:#CBD5E1;
+    pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  #tip.show{opacity:1;transform:none}
+  #tip b{display:block;color:var(--c,var(--cyan));margin-bottom:3px;font-size:.88rem}
+
+  .fade{animation:fadein .45s both}
+  @keyframes fadein{from{opacity:0}to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1><span>PaliGemma 2</span> forward pass</h1>
+      <p class="sub">Bir görüntünün ve bir metin prompt'unun SigLIP, linear projection ve Gemma 2 decoder içinden geçişini adım adım izleyin. Boyutlar PaliGemma 2 makalesini (arXiv:2412.03555) baz alır; görüntü ve çıktılar senaryolu bir demodur.</p>
+    </div>
+    <div class="selects">
+      <label class="field">Görev
+        <select id="task" aria-label="Görev">
+          <option value="detect">Object detection</option>
+          <option value="caption">Captioning</option>
+          <option value="vqa">Visual question answering</option>
+        </select>
+      </label>
+      <label class="field">Model boyutu
+        <select id="model" aria-label="Model boyutu">
+          <option value="3B">3B · Gemma 2 2B</option>
+          <option value="10B">10B · Gemma 2 9B</option>
+          <option value="28B">28B · Gemma 2 27B</option>
+        </select>
+      </label>
+      <label class="field">Girdi çözünürlüğü
+        <select id="res" aria-label="Girdi çözünürlüğü">
+          <option value="224">224 px</option>
+          <option value="448">448 px</option>
+          <option value="896">896 px</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <nav class="pipeline" id="pipeline" aria-label="Pipeline aşamaları"></nav>
+
+  <main class="stage">
+    <section class="card viz" id="viz" aria-live="polite"></section>
+    <aside class="card info" id="info"></aside>
+  </main>
+
+  <div class="controls">
+    <div class="btns">
+      <button class="btn" id="prev">Önceki adım</button>
+      <button class="btn primary" id="play">Otomatik oynat</button>
+      <button class="btn" id="next">Sonraki adım</button>
+    </div>
+    <div class="dots" id="dots" aria-label="Adım ilerlemesi"></div>
+    <div class="count" id="count"></div>
+  </div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------- sabit veriler ---------- */
+  const DIMS = { "3B": 2304, "10B": 3584, "28B": 4608 };
+  const VISION_DIM = 1152;
+
+  const TIPS = {
+    patch:  { c:"cyan", t:"Patch embedding", b:"Stride'ı 14 olan 14×14'lük bir convolution, her patch'i (14×14×3 = 588 değer) 1152 boyutlu tek bir vektöre çevirir ve üzerine position embedding'ler eklenir." },
+    siglip: { c:"cyan", t:"SigLIP-So400m/14", b:"Sigmoid contrastive loss ile önceden eğitilmiş, şekli optimize edilmiş bir Vision Transformer (yaklaşık 400M parametre, 27 katman, 1152 genişlik). Tüm patch token'ları korunur; hiçbiri havuzlanmaz." },
+    proj:   { c:"purple", t:"Linear projection", b:"Öğrenilmiş tek bir matris, her görsel token'ı vision genişliğinden (1152) dil modelinin genişliğine eşler. Tüm token'lara birbirinden bağımsız uygulanır." },
+    prefix: { c:"emerald", t:"Multimodal prefix", b:"Görüntü token'ları, <bos>, görev prompt'u ve satır sonu ayracı prefix'i oluşturur. Prefix'teki tüm token'lar birbirini görür (çift yönlü). Yalnızca üretilen suffix nedenseldir (causal)." },
+    gemma:  { c:"emerald", t:"Gemma 2 decoder", b:"Yalnızca decoder'dan oluşan bir transformer. Prefix bir kez işlenip önbelleğe alınır (KV cache); ardından <eos> gelene kadar her adımda bir token üretilir. Detection, koordinat olarak 1024 adet <locXXXX> token'ı kullanır." },
+    loc:    { c:"cyan", t:"Location token'ları", b:"Kutu koordinatları <loc0000> ile <loc1023> arasındaki dört token olarak, y_min, x_min, y_max, x_max sırasıyla ve 1024'lük bir ızgaraya normalize edilerek yazılır." },
+    mask:   { c:"emerald", t:"Prefix-LM attention", b:"Camgöbeği hücrelerde attention'a izin verilir. Prefix satırları tüm prefix'i görür; suffix satırları prefix'i ve kendilerinden önceki suffix token'larını görür." }
+  };
+
+  const OBJ_CAT  = [311, 215, 768, 571];
+  const OBJ_BALL = [658, 704, 805, 850];
+  const pad = n => "<loc" + String(n).padStart(4,"0") + ">";
+
+  /* Model prompt'ları ve çıktıları PaliGemma'nın gerçek sözdizimi olduğu için İngilizce bırakıldı. */
+  const TASKS = {
+    detect: { prompt:"detect cat ; ball",
+      out:[...OBJ_CAT.map(pad),"cat",";",...OBJ_BALL.map(pad),"ball"],
+      objs:[{label:"cat", color:"#38BDF8", box:OBJ_CAT, boxAt:4, labelAt:5},
+            {label:"ball",color:"#A855F7", box:OBJ_BALL,boxAt:10,labelAt:11}] },
+    caption:{ prompt:"caption en",
+      out:["a","ginger","cat","sitting","next","to","a","red","ball"], objs:[] },
+    vqa:    { prompt:"answer en what color is the ball ?", out:["red"], objs:[] }
+  };
+
+  const STEPS = [
+    { id:"patch", c:"cyan", node:"Görüntü ve patch'ler", meta:"224² → 256", tip:"patch" },
+    { id:"vit",   c:"cyan", node:"SigLIP encoder", meta:"patch → 1152-d", tip:"siglip" },
+    { id:"proj",  c:"purple", node:"Linear projection", meta:"1152 → d", tip:"proj" },
+    { id:"pref",  c:"emerald", node:"Prefix birleştirme", meta:"görüntü + metin", tip:"prefix" },
+    { id:"dec",   c:"emerald", node:"Gemma 2 decoder", meta:"token token", tip:"gemma" }
+  ];
+
+  /* ---------- durum ---------- */
+  const st = { step:0, task:"detect", model:"3B", res:224, playing:false, gen:0, prompt:TASKS.detect.prompt };
+  let autoT = null, genT = null;
+  let patchColors = Array.from({length:256}, (_, i) => fallbackColor(i));
+  let imgData = null;
+
+  /* ---------- yardımcılar ---------- */
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  function rng(seed){ let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  function fallbackColor(i){ const r = rng(i * 97 + 3); return `rgb(${60+r()*150|0},${60+r()*120|0},${60+r()*150|0})`; }
+  const tokensPerSide = () => st.res / 14;
+  const nImg = () => tokensPerSide() ** 2;
+  const dModel = () => DIMS[st.model];
+  const tokenize = s => (s.match(/[\p{L}\p{N}_']+|[;?,.!]/gu) || []);
+  const task = () => TASKS[st.task];
+
+  /* ---------- demo görüntüsü (224 x 224 birim) ---------- */
+  function sceneInner(){
+    return `
+    <defs>
+      <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3B4A68"/><stop offset="1" stop-color="#2A3650"/></linearGradient>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7DD3FC"/><stop offset="1" stop-color="#BAE6FD"/></linearGradient>
+      <radialGradient id="ball" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#FCA5A5"/><stop offset=".5" stop-color="#EF4444"/><stop offset="1" stop-color="#991B1B"/></radialGradient>
+    </defs>
+    <rect width="224" height="224" fill="url(#wall)"/>
+    <rect x="22" y="18" width="58" height="48" rx="3" fill="url(#sky)" stroke="#CBD5E1" stroke-width="3"/>
+    <path d="M51 18V66M22 42H80" stroke="#CBD5E1" stroke-width="2.5"/>
+    <circle cx="36" cy="30" r="5" fill="#fff" opacity=".8"/>
+    <rect y="150" width="224" height="74" fill="#7C5A3C"/>
+    <path d="M0 170H224M0 192H224M0 214H224" stroke="#684A30" stroke-width="1.2"/>
+    <ellipse cx="90" cy="172" rx="52" ry="7" fill="#000" opacity=".25"/>
+    <path d="M118 150 C 138 150 132 118 122 124" fill="none" stroke="#D97706" stroke-width="9" stroke-linecap="round"/>
+    <ellipse cx="86" cy="140" rx="36" ry="28" fill="#F59E0B"/>
+    <path d="M62 128q4 8 0 16M74 120q4 8 0 16M96 120q-4 8 0 16" stroke="#B45309" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <ellipse cx="68" cy="164" rx="12" ry="6" fill="#FBBF24"/><ellipse cx="102" cy="164" rx="12" ry="6" fill="#FBBF24"/>
+    <path d="M65 84 L62 66 L78 77 Z" fill="#F59E0B"/><path d="M107 84 L110 66 L94 77 Z" fill="#F59E0B"/>
+    <path d="M66 80 L65 72 L73 77Z" fill="#FDA4AF"/><path d="M106 80 L107 72 L99 77Z" fill="#FDA4AF"/>
+    <circle cx="86" cy="98" r="23" fill="#FBBF24"/>
+    <path d="M80 78v7M86 76v8M92 78v7" stroke="#B45309" stroke-width="2.4" stroke-linecap="round"/>
+    <ellipse cx="77" cy="97" rx="4" ry="5" fill="#0F172A"/><ellipse cx="95" cy="97" rx="4" ry="5" fill="#0F172A"/>
+    <circle cx="78.2" cy="95.4" r="1.4" fill="#fff"/><circle cx="96.2" cy="95.4" r="1.4" fill="#fff"/>
+    <path d="M83 105 L89 105 L86 109Z" fill="#F472B6"/>
+    <path d="M86 109 q-4 4 -8 2 M86 109 q4 4 8 2" stroke="#7C2D12" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+    <path d="M70 106h-14M70 109l-13 4M102 106h14M102 109l13 4" stroke="#FEF3C7" stroke-width="1" stroke-linecap="round"/>
+    <ellipse cx="172" cy="178" rx="17" ry="4" fill="#000" opacity=".28"/>
+    <circle cx="170" cy="160" r="16" fill="url(#ball)"/>
+    <path d="M156 156 Q170 148 184 156" stroke="#FEE2E2" stroke-width="2" fill="none" opacity=".7"/>`;
+  }
+  const sceneSVG = extra => `<svg viewBox="0 0 224 224" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">${sceneInner()}${extra || ""}</svg>`;
+
+  function samplePatchColors(){
+    try{
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="224" height="224" viewBox="0 0 224 224">${sceneInner()}</svg>`;
+      const img = new Image();
+      img.onload = () => {
+        try{
+          const cv = document.createElement("canvas"); cv.width = cv.height = 224;
+          const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0, 224, 224);
+          imgData = cx.getImageData(0, 0, 224, 224);
+          const cols = [];
+          for(let r = 0; r < 16; r++) for(let c = 0; c < 16; c++){
+            let R=0,G=0,B=0;
+            for(let y = 0; y < 14; y++) for(let x = 0; x < 14; x++){
+              const k = ((r*14+y)*224 + c*14+x)*4; R += imgData.data[k]; G += imgData.data[k+1]; B += imgData.data[k+2];
+            }
+            cols.push(`rgb(${R/196|0},${G/196|0},${B/196|0})`);
+          }
+          patchColors = cols; render();
+        }catch(e){ /* canvas engellenirse yedek renkler kalır */ }
+      };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }catch(e){}
+  }
+
+  /* ---------- pipeline şeridi, noktalar ---------- */
+  function buildChrome(){
+    const p = $("#pipeline"); let html = "";
+    STEPS.forEach((s, i) => {
+      html += `<button class="node" data-c="${s.c}" data-i="${i}" data-tip="${s.tip}"><div class="k">Aşama ${i+1}</div><div class="t">${s.node}</div><div class="m" data-meta="${i}">${s.meta}</div></button>`;
+      if(i < STEPS.length - 1) html += `<svg class="arrow" data-a="${i}" viewBox="0 0 34 14" aria-hidden="true"><path d="M2 7H28"/><path d="M24 3l5 4-5 4"/></svg>`;
+    });
+    p.innerHTML = html;
+    p.querySelectorAll(".node").forEach(n => n.addEventListener("click", () => go(+n.dataset.i)));
+    $("#dots").innerHTML = STEPS.map((_, i) => `<button data-i="${i}" aria-label="${i+1}. aşamaya git"></button>`).join("");
+    $("#dots").querySelectorAll("button").forEach(b => b.addEventListener("click", () => go(+b.dataset.i)));
+  }
+
+  function updateChrome(){
+    document.querySelectorAll(".node").forEach(n => {
+      const i = +n.dataset.i; n.classList.toggle("active", i === st.step); n.classList.toggle("done", i < st.step);
+    });
+    document.querySelectorAll(".arrow").forEach(a => a.classList.toggle("on", +a.dataset.a === st.step - 1 || +a.dataset.a === st.step));
+    document.querySelectorAll("#dots button").forEach((b, i) => { b.classList.toggle("on", i === st.step); b.classList.toggle("done", i < st.step); });
+    $("#count").textContent = `Adım ${st.step + 1} / ${STEPS.length}`;
+    $("#prev").disabled = st.step === 0; $("#next").disabled = st.step === STEPS.length - 1;
+    const pl = $("#play"); pl.textContent = st.playing ? "Duraklat" : "Otomatik oynat"; pl.classList.toggle("playing", st.playing);
+    document.querySelector('[data-meta="0"]').textContent = `${st.res}² → ${nImg()}`;
+    document.querySelector('[data-meta="1"]').textContent = `${nImg()} × ${VISION_DIM}`;
+    document.querySelector('[data-meta="2"]').textContent = `${VISION_DIM} → ${dModel()}`;
+    document.querySelector('[data-meta="3"]').textContent = `${nImg() + 2 + tokenize(st.prompt).length} token`;
+  }
+
+  /* ---------- bilgi paneli ---------- */
+  function renderInfo(){
+    const s = STEPS[st.step], side = tokensPerSide(), N = nImg(), d = dModel();
+    const prefixLen = N + 1 + tokenize(st.prompt).length + 1;
+    const copy = [
+      ["Girdi görüntüsü ve patch çıkarma", `Görüntü ${st.res}×${st.res} boyutuna getirilir ve birbiriyle çakışmayan 14×14'lük patch'lere bölünür. Her patch, bir cümledeki kelime gibi dizide tek bir konum olur. Bir patch'i incelemek için ızgaranın üzerine gelin.`,
+        [["Patch boyutu","14 × 14 px"],["Izgara",`${side} × ${side}`],["Patch sayısı",N],["Patch başına değer","14×14×3 = 588"]]],
+      ["SigLIP vision encoder", `SigLIP-So400m/14 Vision Transformer, self-attention sayesinde tüm patch'leri birlikte okur; böylece her token tüm görüntüden bağlam alır. Embedding'ini görmek için bir token'ın üzerine gelin.`,
+        [["Katman · genişlik","27 · 1152"],["Girdi",`${N} patch`],["Çıktı",`${N} × ${VISION_DIM}`],["Pooling","yok (tüm token'lar korunur)"]]],
+      ["Linear projection", `Gemma 2, kendi genişliğinde vektörler bekler. Tek bir linear katman her görsel token'ı ${VISION_DIM} boyuttan ${d} boyuta eşler; böylece dil modeli görüntüyü fazladan token'lar gibi işleyebilir.`,
+        [["Ağırlık matrisi",`${VISION_DIM} × ${d}`],["Giriş",`${N} × ${VISION_DIM}`],["Çıkış",`${N} × ${d}`],["Dil modeli",`Gemma 2 ${st.model==="3B"?"2B":st.model==="10B"?"9B":"27B"}`]]],
+      ["Multimodal prefix birleştirme", `Projeksiyondan geçen görüntü token'ları başa konur; ardından <bos>, görev prompt'unuz ve satır sonu ayracı gelir. Aşağıdaki prompt'u düzenleyin ve dizinin nasıl değiştiğini izleyin. Decoder bu prefix'in tamamını tam attention ile okuyacak.`,
+        [["Görüntü token'ları",N],["Metin token'ları",`${tokenize(st.prompt).length + 2} (<bos> ve \\n dahil)`],["Prefix uzunluğu",prefixLen],["Attention","prefix'te çift yönlü"]]],
+      ["Autoregressive Gemma 2 decoding", `Gemma 2 prefix'i bir kez önbelleğe alır, sonra token'ları tek tek tahmin eder. Üretilen her yeni token suffix'in sonuna eklenir ve <eos> gelene kadar modele geri verilir. Detection, her kutu için dört location token'ı ve ardından etiketi üretir.`,
+        [["Prefix (cache'te)",`${prefixLen} token`],["Suffix token'ları",`${task().out.length + 1}`],["Suffix'te attention","causal"],["Hidden genişlik",d]]]
+    ][st.step];
+    $("#info").style.setProperty("--c", `var(--${s.c})`);
+    $("#info").innerHTML = `<div class="fade"><span class="tag">Aşama ${st.step + 1} / 5</span><h3>${copy[0]}</h3><p>${copy[1]}</p>
+      <ul class="facts">${copy[2].map(f => `<li><span>${f[0]}</span><b>${esc(f[1])}</b></li>`).join("")}</ul>
+      ${st.res !== 224 && st.step < 2 ? `<p class="note">Anlaşılır olması için şekilde 16×16'lık bir ızgara gösteriliyor. ${st.res} px'te gerçek ızgara ${side}×${side} olur.</p>` : ""}</div>`;
+  }
+
+  /* ---------- görsel paneller ---------- */
+  function barsHTML(n, seed, color, scale){
+    const r = rng(seed); let h = "";
+    for(let j = 0; j < n; j++){ const v = 12 + r() * 72 * (scale || 1); h += `<i style="--j:${j};height:${Math.min(v,84)}px;--c:${color}"></i>`; }
+    return h;
+  }
+
+  function vizPatches(){
+    let cells = "";
+    for(let r = 0; r < 16; r++) for(let c = 0; c < 16; c++)
+      cells += `<rect class="cell sweep" style="--r:${r};--c:${c}" x="${c*14}" y="${r*14}" width="14" height="14" data-r="${r}" data-c="${c}"/>`;
+    $("#viz").innerHTML = `<div class="fade"><h3>Görüntüyü dilimleme</h3><p class="hint">Her kare 14×14'lük bir patch. İncelemek için üzerine gelin.</p>
+      <div class="row"><div class="imgbox" data-tip="patch" id="imgbox">${sceneSVG(`<g>${cells}</g>`)}</div>
+      <div class="readout"><canvas class="zoom" id="zoom" width="14" height="14"></canvas>
+        <div id="ro">Piksellerini görmek için bir patch'in üzerine gelin.</div></div></div></div>`;
+    const box = $("#imgbox"), zc = $("#zoom").getContext("2d");
+    box.addEventListener("mouseover", e => {
+      const t = e.target; if(!t.dataset || t.dataset.r === undefined) return;
+      const r = +t.dataset.r, c = +t.dataset.c;
+      $("#ro").innerHTML = `Patch <b>(${r}, ${c})</b><br>Dizi indeksi <b>${r*16+c}</b><br>14 × 14 × 3 = <b>588</b> değer<br>Tek bir vektöre düzleştirilir`;
+      if(imgData) zc.putImageData(imgData, -c*14, -r*14, c*14, r*14, 14, 14);
+      else { zc.fillStyle = patchColors[r*16+c]; zc.fillRect(0,0,14,14); }
+    });
+  }
+
+  function vizVit(){
+    let toks = ""; for(let i = 0; i < 256; i++) toks += `<i style="--i:${i};background:${patchColors[i]}" data-i="${i}"></i>`;
+    $("#viz").innerHTML = `<div class="fade"><h3>Patch'ler görsel token'lara dönüşür</h3>
+      <p class="hint">Karelerin rengi yalnızca yön bulmak için patch'in ortalama rengini gösterir. Gerçek token'lar 1152 sayılık vektörlerdir.</p>
+      <div style="margin-bottom:12px"><span class="module" data-c="cyan" data-tip="siglip" tabindex="0">SigLIP-So400m/14 · 27 katman · tüm patch'ler arasında self-attention</span></div>
+      <div class="row"><div class="tgrid" id="tg">${toks}</div>
+      <div class="readout"><div id="ro2">Embedding'ini görmek için bir token'ın üzerine gelin.</div><div class="bars" id="eb" style="margin-top:10px"></div></div></div></div>`;
+    $("#tg").addEventListener("mouseover", e => {
+      const i = e.target.dataset && e.target.dataset.i; if(i === undefined) return;
+      $("#ro2").innerHTML = `Token <b>${i}</b> · 1152 sayı<br>gösterilen: örneklenmiş 48 boyut`;
+      $("#eb").innerHTML = barsHTML(48, +i * 31 + 7, "var(--cyan)");
+    });
+  }
+
+  function vizProj(){
+    const d = dModel(), dst = Math.round(24 * d / VISION_DIM);
+    $("#viz").innerHTML = `<div class="fade"><h3>Dil modelinin genişliğine uydurma</h3>
+      <p class="hint">Tek bir görsel token, projeksiyondan önce ve sonra.</p>
+      <div class="proj">
+        <div class="vec"><small>görsel token · ${VISION_DIM} boyut</small><div class="bars">${barsHTML(24, 11, "var(--cyan)")}</div></div>
+        <span class="big-arrow">→</span>
+        <div class="vec"><span class="module" data-c="purple" data-tip="proj" tabindex="0">Linear projection</span><div class="matrix" style="margin-top:6px"></div><small>${VISION_DIM} × ${d}</small></div>
+        <span class="big-arrow">→</span>
+        <div class="vec"><small>dil uzayındaki token · ${d} boyut</small><div class="bars">${barsHTML(dst, 23, "var(--purple)")}</div></div>
+      </div>
+      <p class="seg">Her token'a bağımsız uygulanır: ${nImg()} × ${VISION_DIM}, ${nImg()} × ${d} olur.</p>
+      <div class="chips"><div class="imgchip"><div class="mini">${patchColors.map(c => `<i style="background:${c}"></i>`).join("")}</div>${nImg()} görüntü token'ı · ${d}-d</div></div></div>`;
+  }
+
+  function promptChips(){
+    const toks = tokenize(st.prompt);
+    return `<div class="imgchip" data-tip="prefix"><div class="mini">${patchColors.map(c => `<i style="background:${c}"></i>`).join("")}</div>${nImg()} görüntü token'ı</div>
+      <span class="chip sp">&lt;bos&gt;</span>${toks.map(t => `<span class="chip tx">${esc(t)}</span>`).join("")}<span class="chip sp">\\n</span>`;
+  }
+
+  function maskSVG(){
+    const n = 16, p = 10, cs = 11; let h = "";
+    for(let i = 0; i < n; i++) for(let j = 0; j < n; j++){
+      const ok = j < p ? true : (i >= p && j <= i);
+      const fill = !ok ? "#0F172A" : (i < p ? "#38BDF8" : "#A855F7");
+      h += `<rect x="${j*cs}" y="${i*cs}" width="${cs-1}" height="${cs-1}" rx="2" fill="${fill}" opacity="${ok ? .85 : 1}"/>`;
+    }
+    return `<svg viewBox="0 0 ${n*cs} ${n*cs}" width="176" height="176" data-tip="mask" tabindex="0">${h}</svg>`;
+  }
+
+  function vizPrefix(){
+    $("#viz").innerHTML = `<div class="fade"><h3>Prefix'i oluşturma</h3><p class="hint">Prompt'u düzenleyin. Buradaki tokenizer gösterim için basitleştirilmiştir.</p>
+      <div class="promptline"><label class="field" style="flex:1 1 260px">Metin prompt'u<input type="text" id="prompt" value="${esc(st.prompt)}" spellcheck="false"></label></div>
+      <div class="chips" id="pchips">${promptChips()}</div>
+      <p class="seg">Hangi token hangisini görebilir (satırlar sütunlara bakar)</p>
+      <div class="row">${maskSVG()}
+        <div class="legend" style="flex-direction:column;gap:6px;margin:0">
+          <span style="--k:var(--cyan)">Prefix satırları tüm prefix'i görür</span>
+          <span style="--k:var(--purple)">Suffix satırları prefix'i ve kendinden önceki suffix token'larını görür</span>
+          <span style="--k:#0F172A;">Engelli: ileriye bakılamaz</span></div></div></div>`;
+    $("#prompt").addEventListener("input", e => { st.prompt = e.target.value; $("#pchips").innerHTML = promptChips(); renderInfo(); updateChrome(); });
+  }
+
+  function vizDecode(){
+    $("#viz").innerHTML = `<div class="fade"><h3>Cevabı üretme</h3><p class="hint">Prompt: <span style="font-family:var(--mono);color:#D8B4FE">${esc(st.prompt)}</span> <span id="note"></span></p>
+      <div class="row"><div class="imgbox" id="dimg"></div>
+        <div style="flex:1 1 260px;min-width:240px">
+          <div style="margin-bottom:8px"><span class="module" data-c="emerald" data-tip="gemma" tabindex="0">Gemma 2 decoder · KV cache prefix'i tutar</span></div>
+          <div class="chips" id="outc"></div>
+          <div class="decoded" id="dec"></div>
+          <div id="probs"></div>
+          <button class="btn" id="replay" style="margin-top:10px">Üretimi tekrar oynat</button></div></div></div>`;
+    $("#replay").addEventListener("click", () => { startGen(); });
+    renderGen();
+  }
+
+  function renderGen(){
+    const out = $("#outc"); if(!out) return;
+    const T = task(), toks = T.out, total = toks.length + 1;
+    let chips = "";
+    for(let i = 0; i < Math.min(st.gen, toks.length); i++){
+      const t = toks[i], isLoc = t.startsWith("<loc");
+      chips += `<span class="chip out ${isLoc ? "loc" : ""}" ${isLoc ? 'data-tip="loc"' : ""}>${esc(t)}</span>`;
+    }
+    if(st.gen >= total) chips += `<span class="chip out eos">&lt;eos&gt;</span>`;
+    else chips += `<span class="chip" style="opacity:.5">…</span>`;
+    out.innerHTML = chips;
+
+    let text = toks.slice(0, Math.min(st.gen, toks.length)).join(" ").replace(/(<loc\d{4}>) (?=<loc)/g, "$1");
+    $("#dec").innerHTML = text ? esc(text) : `<em>ilk token bekleniyor</em>`;
+
+    let ov = "";
+    T.objs.forEach(o => {
+      if(st.gen >= o.boxAt){
+        const [y0,x0,y1,x1] = o.box.map(v => v / 1024 * 224);
+        ov += `<rect x="${x0}" y="${y0}" width="${x1-x0}" height="${y1-y0}" fill="${o.color}" fill-opacity=".12" stroke="${o.color}" stroke-width="2.2" rx="2"/>`;
+        if(st.gen >= o.labelAt) ov += `<rect x="${x0}" y="${Math.max(0,y0-13)}" width="${o.label.length*6.4+10}" height="13" rx="3" fill="${o.color}"/><text x="${x0+5}" y="${Math.max(0,y0-13)+9.5}" font-size="9" font-family="sans-serif" font-weight="700" fill="#06131F">${o.label}</text>`;
+      }
+    });
+    $("#dimg").innerHTML = sceneSVG(ov);
+
+    const k = Math.min(st.gen, toks.length) - 1;
+    if(st.gen >= total){ $("#probs").innerHTML = `<div class="prob"><span>&lt;eos&gt;</span><div class="b"><i style="width:97%"></i></div><span>0.97</span></div><p class="note">Durdurma token'ına ulaşıldı. Üretim sona erdi.</p>`; }
+    else if(k >= 0){
+      const t = toks[k], r = rng(k * 131 + 5), p0 = 0.62 + r() * 0.34;
+      let alts;
+      if(t.startsWith("<loc")){ const v = +t.slice(4, 8); alts = [pad(Math.max(0, v - 2)), pad(Math.min(1023, v + 3))]; }
+      else alts = ["the","a","an",".","of"].filter(a => a !== t).slice(0, 2);
+      const rest = 1 - p0, p1 = rest * (0.55 + r() * .2), p2 = rest * .2;
+      const row = (n, p, cls) => `<div class="prob ${cls || ""}"><span>${esc(n)}</span><div class="b"><i style="width:${(p*100).toFixed(0)}%"></i></div><span>${p.toFixed(2)}</span></div>`;
+      $("#probs").innerHTML = `<p class="note" style="margin:6px 0">Sonraki token adayları (gösterim amaçlı)</p>${row(t, p0)}${row(alts[0], p1, "alt")}${row(alts[1], p2, "alt")}`;
+    } else $("#probs").innerHTML = `<p class="note">Decoder prefix'in tamamını bir kez okur, sonra tahmine başlar.</p>`;
+    const note = $("#note"); if(note) note.textContent = st.prompt !== task().prompt ? "· bu demoda çıktılar senaryolu kalır" : "";
+  }
+
+  /* ---------- üretim zamanlayıcıları ---------- */
+  function stopGen(){ if(genT){ clearInterval(genT); genT = null; } }
+  function startGen(){
+    stopGen(); clearTimeout(autoT); st.gen = 0; renderGen();
+    const total = task().out.length + 1;
+    genT = setInterval(() => {
+      if(st.step !== 4){ stopGen(); return; }
+      if(st.gen < total){ st.gen++; renderGen(); }
+      if(st.gen >= total){ stopGen(); if(st.playing) autoT = setTimeout(() => go(0), 3200); }
+    }, 700);
+  }
+
+  /* ---------- gezinme ---------- */
+  function render(){
+    updateChrome(); renderInfo();
+    [vizPatches, vizVit, vizProj, vizPrefix, vizDecode][st.step]();
+  }
+  function schedule(){
+    clearTimeout(autoT);
+    if(st.playing && st.step < 4) autoT = setTimeout(() => go(st.step + 1), 3600);
+  }
+  function go(n){
+    n = Math.max(0, Math.min(STEPS.length - 1, n));
+    stopGen(); clearTimeout(autoT);
+    st.step = n; st.gen = 0; render();
+    if(n === 4) startGen(); else schedule();
+  }
+  function togglePlay(){
+    st.playing = !st.playing; updateChrome();
+    if(!st.playing){ clearTimeout(autoT); return; }
+    if(st.step < 4) schedule();
+    else if(!genT && st.gen >= task().out.length + 1) autoT = setTimeout(() => go(0), 1200);
+  }
+
+  /* ---------- tooltip ---------- */
+  const tip = $("#tip");
+  function showTip(el, x, y){
+    const d = TIPS[el.dataset.tip]; if(!d) return;
+    tip.style.setProperty("--c", `var(--${d.c})`);
+    tip.innerHTML = `<b>${d.t}</b>${d.b}`; tip.classList.add("show");
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let left = Math.min(x + 14, innerWidth - w - 10), top = y + 18; if(top + h > innerHeight - 10) top = y - h - 14;
+    tip.style.left = Math.max(8, left) + "px"; tip.style.top = Math.max(8, top) + "px";
+  }
+  document.addEventListener("mousemove", e => { const el = e.target.closest && e.target.closest("[data-tip]"); if(el) showTip(el, e.clientX, e.clientY); else tip.classList.remove("show"); });
+  document.addEventListener("focusin", e => { const el = e.target.closest && e.target.closest("[data-tip]"); if(el){ const r = el.getBoundingClientRect(); showTip(el, r.left, r.bottom - 14); } });
+  document.addEventListener("focusout", () => tip.classList.remove("show"));
+  document.addEventListener("mouseleave", () => tip.classList.remove("show"));
+
+  /* ---------- bağlantılar ---------- */
+  $("#prev").addEventListener("click", () => go(st.step - 1));
+  $("#next").addEventListener("click", () => go(st.step + 1));
+  $("#play").addEventListener("click", togglePlay);
+  $("#task").addEventListener("change", e => { st.task = e.target.value; st.prompt = TASKS[st.task].prompt; go(st.step); });
+  $("#model").addEventListener("change", e => { st.model = e.target.value; go(st.step); });
+  $("#res").addEventListener("change", e => { st.res = +e.target.value; go(st.step); });
+  document.addEventListener("keydown", e => {
+    if(e.target.matches("input,select,textarea")) return;
+    if(e.key === "ArrowRight") go(st.step + 1);
+    else if(e.key === "ArrowLeft") go(st.step - 1);
+    else if(e.key === " " && !e.target.matches("button")){ e.preventDefault(); togglePlay(); }
+  });
+
+  buildChrome(); render(); samplePatchColors();
+})();
+</script>
+</body>
+</html>
